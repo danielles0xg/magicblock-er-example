@@ -9,7 +9,7 @@ mod instructions;
 
 use instructions::*;
 
-declare_id!("9hG187VazKdEZcYbsEcoPuPEWwkfF9HccUDTAJzuEcg3");
+declare_id!("3QUFRXjCC79kypTQ99pk6RqhWdQEctGhHaLHtw474NB4");
 
 #[ephemeral]
 #[program]
@@ -31,7 +31,13 @@ pub mod er_state_account {
 
     pub fn update_commit(ctx: Context<UpdateCommit>, new_data: u64) -> Result<()> {
         ctx.accounts.update_commit(new_data)?;
-        
+
+        Ok(())
+    }
+
+    pub fn callback_update_commit(ctx: Context<CallbackUpdateCommit>, randomness: [u8; 32]) -> Result<()> {
+        ctx.accounts.callback_update_commit(randomness)?;
+
         Ok(())
     }
 

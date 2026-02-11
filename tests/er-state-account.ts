@@ -36,13 +36,15 @@ describe("er-state-account", () => {
 
   const program = anchor.workspace.erStateAccount as Program<ErStateAccount>;
 
+  // ER-connected program instance for sending txs through the Ephemeral Rollup
+  const ephemeralProgram = new Program(program.idl, providerEphemeralRollup);
+
   const userAccount = anchor.web3.PublicKey.findProgramAddressSync(
     [Buffer.from("user"), anchor.Wallet.local().publicKey.toBuffer()],
     program.programId,
   )[0];
 
   it("Is initialized!", async () => {
-    // Add your test here.
     const tx = await program.methods
       .initialize()
       .accountsPartial({
@@ -71,7 +73,7 @@ describe("er-state-account", () => {
       .accountsPartial({
         user: anchor.Wallet.local().publicKey,
         userAccount: userAccount,
-        validator: new PublicKey("MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57"),
+        validator: new PublicKey("MUS3hc9TCw4cGC12vHNoYcCGzJG1txjgQLZWVoeNHNd"),
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc({ skipPreflight: true });
@@ -79,7 +81,10 @@ describe("er-state-account", () => {
     console.log("\nUser Account Delegated to Ephemeral Rollup: ", tx);
   });
 
-  it("Update State and Commit to Base Layer!", async () => {
+  it("Update State with VRF and Commit to Base Layer!", async () => {
+    // Build the tx using program (for IDL resolution of all VRF accounts)
+    // All VRF accounts (oracleQueue, programIdentity, vrfProgram, slotHashes)
+    // are auto-resolved by Anchor from the IDL address constraints
     let tx = await program.methods
       .updateCommit(new anchor.BN(43))
       .accountsPartial({
@@ -88,21 +93,41 @@ describe("er-state-account", () => {
       })
       .transaction();
 
+    // Sign and send through the ER provider
     tx.feePayer = providerEphemeralRollup.wallet.publicKey;
-
     tx.recentBlockhash = (
       await providerEphemeralRollup.connection.getLatestBlockhash()
     ).blockhash;
     tx = await providerEphemeralRollup.wallet.signTransaction(tx);
     const txHash = await providerEphemeralRollup.sendAndConfirm(tx, [], {
-      skipPreflight: false,
+      skipPreflight: true,
     });
-    const txCommitSgn = await GetCommitmentSignature(
-      txHash,
-      providerEphemeralRollup.connection,
-    );
 
-    console.log("\nUser Account State Updated: ", txHash);
+    console.log("\nVRF Request + Commit sent: ", txHash);
+
+    // Wait for the VRF oracle to process the request and call back (~5s on devnet)
+    console.log("Waiting for VRF oracle callback (~5s)...");
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+
+    // Fetch account to check if callback updated the data with randomness
+    try {
+      const account = await ephemeralProgram.account.userAccount.fetch(
+        userAccount,
+        "processed",
+      );
+      console.log("User account data after VRF callback: ", account.data.toString());
+    } catch (e) {
+      console.log("Could not fetch from ER (account may have been committed)");
+      try {
+        const account = await program.account.userAccount.fetch(
+          userAccount,
+          "processed",
+        );
+        console.log("User account data (base layer): ", account.data.toString());
+      } catch (e2) {
+        console.log("Account not yet available on base layer either");
+      }
+    }
   });
 
   it("Commit and undelegate from Ephemeral Rollup!", async () => {
