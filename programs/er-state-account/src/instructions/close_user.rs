@@ -1,3 +1,5 @@
+// close = user in the account constraint does all the work (sends rent back)
+
 use anchor_lang::prelude::*;
 
 use crate::state::UserAccount;
@@ -17,9 +19,7 @@ pub struct CloseUser<'info> {
 }
 
 impl<'info> CloseUser<'info> {
-    
     pub fn close(&mut self) -> Result<()> {
-        // All the closing logic is handled by the `close` constraint in the Accounts struct
         Ok(())
     }
 }

@@ -1,3 +1,7 @@
+// runs inside the ER -- requests VRF randomness then commits account back to base layer
+// #[commit] gives us magic_context/magic_program for ER commit
+// #[vrf] gives us invoke_signed_vrf helper
+
 use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::{anchor::commit, ephem::commit_accounts};
 use ephemeral_vrf_sdk::anchor::vrf;
@@ -20,23 +24,25 @@ pub struct UpdateCommit<'info> {
     )]
     pub user_account: Account<'info, UserAccount>,
 
-    /// CHECK: The oracle queue
+    /// CHECK: magicblock oracle queue
     #[account(mut, address = ephemeral_vrf_sdk::consts::DEFAULT_EPHEMERAL_QUEUE)]
     pub oracle_queue: AccountInfo<'info>,
 }
 
 impl<'info> UpdateCommit<'info> {
     pub fn update_commit(&mut self, new_data: u64) -> Result<()> {
-        // Convert u64 to [u8; 32] for caller_seed
+        // shove the u64 into a 32byte seed for the VRF request
         let mut caller_seed = [0u8; 32];
         caller_seed[..8].copy_from_slice(&new_data.to_le_bytes());
 
+        // tell the oracle to call back callback_update_commit w/ randomness
         let ix = create_request_randomness_ix(RequestRandomnessParams {
             payer: self.user.key(),
             oracle_queue: self.oracle_queue.key(),
             callback_program_id: crate::ID,
             callback_discriminator: crate::instruction::CallbackUpdateCommit::DISCRIMINATOR.to_vec(),
             caller_seed,
+            // pass our account so the callback can write to it
             accounts_metas: Some(vec![SerializableAccountMeta {
                 pubkey: self.user_account.key(),
                 is_signer: false,
@@ -47,7 +53,7 @@ impl<'info> UpdateCommit<'info> {
 
         self.invoke_signed_vrf(&self.user.to_account_info(), &ix)?;
 
-        // Commit the account back to base layer
+        // commit back to base layer after requesting randomness
         commit_accounts(
             &self.user.to_account_info(),
             vec![&self.user_account.to_account_info()],
@@ -59,6 +65,8 @@ impl<'info> UpdateCommit<'info> {
     }
 }
 
+// oracle calls this after generating randomness
+// only the VRF program identity can sign -- not the user
 #[derive(Accounts)]
 pub struct CallbackUpdateCommit<'info> {
     #[account(address = ephemeral_vrf_sdk::consts::VRF_PROGRAM_IDENTITY)]

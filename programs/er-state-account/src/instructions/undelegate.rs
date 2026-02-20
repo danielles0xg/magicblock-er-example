@@ -1,3 +1,6 @@
+// pushes final state to base layer and takes account back from ER
+// #[commit] gives us magic_context + magic_program
+
 use anchor_lang::prelude::*;
 
 use ephemeral_rollups_sdk::{anchor::commit, ephem::commit_and_undelegate_accounts};
